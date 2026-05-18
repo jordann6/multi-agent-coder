@@ -1,0 +1,81 @@
+<svg width="100%" viewBox="0 0 680 620" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>multi-agent-coder architecture diagram</title>
+<desc>Async multi-agent system: client posts a task, orchestrator Lambda creates a DynamoDB job and fires coder Lambda async, client polls status endpoint for results</desc>
+<defs>
+  <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </marker>
+  <style>
+    text { font-family: Arial, sans-serif; fill: #1a1a1a; }
+    .th { font-size: 14px; font-weight: 600; }
+    .ts { font-size: 12px; font-weight: 400; fill: #444; }
+    .arr { stroke: #555; stroke-width: 1.5; fill: none; }
+  </style>
+</defs>
+
+<!-- Client -->
+<rect x="270" y="30" width="140" height="44" rx="8" fill="#e8e6df" stroke="#888780" stroke-width="0.5"/>
+<text class="th" x="340" y="57" text-anchor="middle">Client</text>
+
+<!-- Arrow: client to api gateway -->
+<line x1="340" y1="74" x2="340" y2="128" class="arr" marker-end="url(#arrow)"/>
+
+<!-- API Gateway -->
+<rect x="200" y="130" width="280" height="56" rx="8" fill="#eeedfe" stroke="#534ab7" stroke-width="0.5"/>
+<text class="th" x="340" y="152" text-anchor="middle" fill="#3c3489">API Gateway</text>
+<text class="ts" x="340" y="170" text-anchor="middle" fill="#534ab7">POST /task · GET /status/{job_id}</text>
+
+<!-- Arrow: API Gateway to Orchestrator -->
+<path d="M260 186 L170 250" fill="none" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text class="ts" x="185" y="226" text-anchor="middle">POST /task</text>
+
+<!-- Arrow: API Gateway to Status -->
+<path d="M420 186 L510 250" fill="none" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text class="ts" x="490" y="226" text-anchor="middle">GET /status</text>
+
+<!-- Orchestrator Lambda -->
+<rect x="60" y="250" width="220" height="72" rx="8" fill="#e1f5ee" stroke="#0f6e56" stroke-width="0.5"/>
+<text class="th" x="170" y="272" text-anchor="middle" fill="#085041">Orchestrator Lambda</text>
+<text class="ts" x="170" y="290" text-anchor="middle" fill="#0f6e56">Creates job · dispatches async</text>
+<text class="ts" x="170" y="307" text-anchor="middle" fill="#0f6e56">Returns 202 + job_id</text>
+
+<!-- Status Lambda -->
+<rect x="400" y="250" width="220" height="72" rx="8" fill="#e1f5ee" stroke="#0f6e56" stroke-width="0.5"/>
+<text class="th" x="510" y="272" text-anchor="middle" fill="#085041">Status Lambda</text>
+<text class="ts" x="510" y="290" text-anchor="middle" fill="#0f6e56">Reads job from DynamoDB</text>
+<text class="ts" x="510" y="307" text-anchor="middle" fill="#0f6e56">Returns status + result</text>
+
+<!-- Arrow: Orchestrator to DynamoDB -->
+<path d="M170 322 L170 418 L243 418" fill="none" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text class="ts" x="128" y="385" text-anchor="middle">write job</text>
+
+<!-- Arrow: Status to DynamoDB -->
+<path d="M510 322 L510 418 L437 418" fill="none" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text class="ts" x="552" y="385" text-anchor="middle">read job</text>
+
+<!-- DynamoDB -->
+<rect x="245" y="390" width="190" height="56" rx="8" fill="#faeeda" stroke="#854f0b" stroke-width="0.5"/>
+<text class="th" x="340" y="412" text-anchor="middle" fill="#633806">DynamoDB</text>
+<text class="ts" x="340" y="430" text-anchor="middle" fill="#854f0b">Jobs table · 24h TTL</text>
+
+<!-- Arrow: Orchestrator to Coder (async, dashed) -->
+<path d="M170 322 L170 475 L193 544" fill="none" stroke="#888" stroke-width="1.2" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+<text class="ts" x="108" y="465" text-anchor="middle">async invoke</text>
+
+<!-- Arrow: Coder to DynamoDB -->
+<path d="M340 510 L340 448" fill="none" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text class="ts" x="395" y="484" text-anchor="middle">write result</text>
+
+<!-- Coder Lambda -->
+<rect x="195" y="510" width="290" height="72" rx="8" fill="#e6f1fb" stroke="#185fa5" stroke-width="0.5"/>
+<text class="th" x="340" y="532" text-anchor="middle" fill="#0c447c">Coder Lambda</text>
+<text class="ts" x="340" y="550" text-anchor="middle" fill="#185fa5">Agentic tool-use loop</text>
+<text class="ts" x="340" y="567" text-anchor="middle" fill="#185fa5">write_code · explain_code · debug_code</text>
+
+<!-- Legend -->
+<line x1="40" y1="600" x2="72" y2="600" stroke="#888" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text class="ts" x="80" y="604">async (fire and forget)</text>
+<line x1="230" y1="600" x2="262" y2="600" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text class="ts" x="270" y="604">sync</text>
+
+</svg>
