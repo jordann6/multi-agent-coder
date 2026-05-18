@@ -4,6 +4,8 @@ A multi-agent system deployed on AWS Lambda that routes natural language coding 
 
 ## Architecture
 
+![Architecture](docs/architecture.svg)
+
 ```
 Client
   POST /task
@@ -12,7 +14,7 @@ Client
         creates job in DynamoDB (status: pending)
         invokes Coder Lambda async (fire and forget)
         returns 202 + job_id
-      
+
   GET /status/{job_id}
     API Gateway
       Status Lambda
@@ -27,11 +29,11 @@ Client
 
 ## Supported task types
 
-| Type | Example prompt |
-|---|---|
-| write_code | "Write a Python function that flattens a nested list" |
-| explain_code | "Explain what this Go function does: ..." |
-| debug_code | "Debug this JavaScript: ... Error: Cannot read property of undefined" |
+| Type         | Example prompt                                                        |
+| ------------ | --------------------------------------------------------------------- |
+| write_code   | "Write a Python function that flattens a nested list"                 |
+| explain_code | "Explain what this Go function does: ..."                             |
+| debug_code   | "Debug this JavaScript: ... Error: Cannot read property of undefined" |
 
 ## Project structure
 
