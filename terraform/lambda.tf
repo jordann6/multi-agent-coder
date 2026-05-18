@@ -18,6 +18,11 @@ resource "aws_cloudwatch_log_group" "orchestrator" {
   retention_in_days = var.log_retention_days
 }
 
+resource "aws_cloudwatch_log_group" "status" {
+  name              = "/aws/lambda/${var.project_name}-status"
+  retention_in_days = var.log_retention_days
+}
+
 resource "aws_lambda_function" "coder" {
   function_name    = "${var.project_name}-coder"
   filename         = "${path.module}/../dist/coder.zip"
@@ -31,6 +36,7 @@ resource "aws_lambda_function" "coder" {
   environment {
     variables = {
       ANTHROPIC_SECRET_ARN = aws_secretsmanager_secret.anthropic_key.arn
+      JOBS_TABLE           = aws_dynamodb_table.jobs.name
     }
   }
 
@@ -44,15 +50,35 @@ resource "aws_lambda_function" "orchestrator" {
   handler          = "handlers.orchestrator_handler.handler"
   runtime          = "python3.12"
   role             = aws_iam_role.orchestrator_lambda.arn
-  timeout          = 300
-  memory_size      = 512
+  timeout          = 30
+  memory_size      = 256
 
   environment {
     variables = {
       ANTHROPIC_SECRET_ARN = aws_secretsmanager_secret.anthropic_key.arn
       CODER_LAMBDA_ARN     = aws_lambda_function.coder.arn
+      JOBS_TABLE           = aws_dynamodb_table.jobs.name
     }
   }
 
   depends_on = [aws_cloudwatch_log_group.orchestrator]
+}
+
+resource "aws_lambda_function" "status" {
+  function_name    = "${var.project_name}-status"
+  filename         = "${path.module}/../dist/status.zip"
+  source_code_hash = filebase64sha256("${path.module}/../dist/status.zip")
+  handler          = "handlers.status_handler.handler"
+  runtime          = "python3.12"
+  role             = aws_iam_role.status_lambda.arn
+  timeout          = 10
+  memory_size      = 128
+
+  environment {
+    variables = {
+      JOBS_TABLE = aws_dynamodb_table.jobs.name
+    }
+  }
+
+  depends_on = [aws_cloudwatch_log_group.status]
 }

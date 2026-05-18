@@ -1,5 +1,6 @@
 import json
 import os
+from datetime import datetime, timezone
 from typing import Any
 
 import anthropic
@@ -32,62 +33,99 @@ Always return a final structured JSON response with no markdown or backticks:
 Include only the fields relevant to the task type. Return only valid JSON."""
 
 
-def get_secret(secret_arn: str) -> str:
+def _get_secret(secret_arn: str) -> str:
     client = boto3.client("secretsmanager", region_name=os.environ.get("AWS_REGION", "us-east-1"))
-    response = client.get_secret_value(SecretId=secret_arn)
-    return response["SecretString"]
+    return client.get_secret_value(SecretId=secret_arn)["SecretString"]
 
 
-def run_coder_agent(task: str) -> dict[str, Any]:
-    api_key = get_secret(os.environ["ANTHROPIC_SECRET_ARN"])
+def _dynamo_table():
+    return boto3.resource("dynamodb", region_name=os.environ.get("AWS_REGION", "us-east-1")).Table(
+        os.environ["JOBS_TABLE"]
+    )
+
+
+def _store_result(job_id: str, result: dict[str, Any]) -> None:
+    _dynamo_table().update_item(
+        Key={"job_id": job_id},
+        UpdateExpression="SET #s = :s, #r = :r, completed_at = :c",
+        ExpressionAttributeNames={"#s": "status", "#r": "result"},
+        ExpressionAttributeValues={
+            ":s": "complete",
+            ":r": result,
+            ":c": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+
+
+def _store_error(job_id: str, error: str) -> None:
+    _dynamo_table().update_item(
+        Key={"job_id": job_id},
+        UpdateExpression="SET #s = :s, #e = :e, completed_at = :c",
+        ExpressionAttributeNames={"#s": "status", "#e": "error"},
+        ExpressionAttributeValues={
+            ":s": "error",
+            ":e": error,
+            ":c": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+
+
+def run_coder_agent(task: str, job_id: str | None = None) -> dict[str, Any]:
+    api_key = _get_secret(os.environ["ANTHROPIC_SECRET_ARN"])
     client = anthropic.Anthropic(api_key=api_key)
 
     messages: list[dict[str, Any]] = [{"role": "user", "content": task}]
+    result: dict[str, Any] = {}
 
-    for _ in range(MAX_ITERATIONS):
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=4096,
-            system=SYSTEM_PROMPT,
-            tools=CODER_TOOLS,
-            messages=messages,
-        )
+    try:
+        for _ in range(MAX_ITERATIONS):
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=4096,
+                system=SYSTEM_PROMPT,
+                tools=CODER_TOOLS,
+                messages=messages,
+            )
 
-        messages.append({"role": "assistant", "content": response.content})
+            messages.append({"role": "assistant", "content": response.content})
 
-        if response.stop_reason == "end_turn":
-            for block in response.content:
-                if block.type == "text":
-                    try:
-                        return json.loads(block.text)
-                    except json.JSONDecodeError:
-                        return {
-                            "task_type": "unknown",
-                            "result": {"explanation": block.text},
-                            "summary": "Completed without structured output",
-                        }
-            break
+            if response.stop_reason == "end_turn":
+                for block in response.content:
+                    if block.type == "text":
+                        try:
+                            result = json.loads(block.text)
+                        except json.JSONDecodeError:
+                            result = {
+                                "task_type": "unknown",
+                                "result": {"explanation": block.text},
+                                "summary": "Completed without structured output",
+                            }
+                break
 
-        if response.stop_reason == "tool_use":
-            tool_results = []
-            for block in response.content:
-                if block.type == "tool_use":
-                    tool_fn = TOOL_DISPATCH.get(block.name)
-                    if tool_fn:
-                        output = tool_fn(**block.input)
-                    else:
-                        output = {"error": f"Unknown tool: {block.name}"}
-                    tool_results.append(
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": json.dumps(output),
-                        }
-                    )
-            messages.append({"role": "user", "content": tool_results})
+            if response.stop_reason == "tool_use":
+                tool_results = []
+                for block in response.content:
+                    if block.type == "tool_use":
+                        tool_fn = TOOL_DISPATCH.get(block.name)
+                        output = tool_fn(**block.input) if tool_fn else {"error": f"Unknown tool: {block.name}"}
+                        tool_results.append(
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": block.id,
+                                "content": json.dumps(output),
+                            }
+                        )
+                messages.append({"role": "user", "content": tool_results})
 
-    return {
-        "task_type": "unknown",
-        "result": {},
-        "summary": "Max iterations reached without a final response",
-    }
+        if not result:
+            result = {"task_type": "unknown", "result": {}, "summary": "Max iterations reached"}
+
+        if job_id:
+            _store_result(job_id, result)
+
+    except Exception as e:
+        if job_id:
+            _store_error(job_id, str(e))
+        raise
+
+    return result

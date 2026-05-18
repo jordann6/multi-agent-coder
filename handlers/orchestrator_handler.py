@@ -18,7 +18,7 @@ def handler(event: dict, context: object) -> dict:
         result = run_orchestrator(task)
 
         return {
-            "statusCode": 200,
+            "statusCode": 202,
             "headers": {"Content-Type": "application/json"},
             "body": json.dumps(result),
         }

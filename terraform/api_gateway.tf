@@ -15,6 +15,16 @@ resource "aws_apigatewayv2_stage" "default" {
 
   access_log_settings {
     destination_arn = aws_cloudwatch_log_group.api_gateway.arn
+    format = jsonencode({
+      requestId      = "$context.requestId"
+      sourceIp       = "$context.identity.sourceIp"
+      requestTime    = "$context.requestTime"
+      httpMethod     = "$context.httpMethod"
+      routeKey       = "$context.routeKey"
+      status         = "$context.status"
+      responseLength = "$context.responseLength"
+      errorMessage   = "$context.error.message"
+    })
   }
 }
 
@@ -25,10 +35,23 @@ resource "aws_apigatewayv2_integration" "orchestrator" {
   payload_format_version = "2.0"
 }
 
+resource "aws_apigatewayv2_integration" "status" {
+  api_id                 = aws_apigatewayv2_api.main.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.status.invoke_arn
+  payload_format_version = "2.0"
+}
+
 resource "aws_apigatewayv2_route" "task" {
   api_id    = aws_apigatewayv2_api.main.id
   route_key = "POST /task"
   target    = "integrations/${aws_apigatewayv2_integration.orchestrator.id}"
+}
+
+resource "aws_apigatewayv2_route" "status" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /status/{job_id}"
+  target    = "integrations/${aws_apigatewayv2_integration.status.id}"
 }
 
 resource "aws_lambda_permission" "api_gateway_orchestrator" {
@@ -39,7 +62,10 @@ resource "aws_lambda_permission" "api_gateway_orchestrator" {
   source_arn    = "${aws_apigatewayv2_api.main.execution_arn}/*/*"
 }
 
-output "api_endpoint" {
-  description = "API Gateway endpoint for POST /task"
-  value       = "${aws_apigatewayv2_stage.default.invoke_url}/task"
+resource "aws_lambda_permission" "api_gateway_status" {
+  statement_id  = "AllowAPIGatewayInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.status.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.main.execution_arn}/*/*"
 }
