@@ -1,8 +1,14 @@
 import json
+import logging
 import os
+import uuid
 from decimal import Decimal
 
 import boto3
+
+logger = logging.getLogger()
+
+_dynamodb = boto3.resource("dynamodb", region_name=os.environ.get("AWS_REGION", "us-east-1"))
 
 
 class _DecimalEncoder(json.JSONEncoder):
@@ -23,10 +29,16 @@ def handler(event: dict, context: object) -> dict:
                 "body": json.dumps({"error": "job_id is required"}),
             }
 
-        table = boto3.resource(
-            "dynamodb", region_name=os.environ.get("AWS_REGION", "us-east-1")
-        ).Table(os.environ["JOBS_TABLE"])
+        try:
+            uuid.UUID(job_id)
+        except ValueError:
+            return {
+                "statusCode": 400,
+                "headers": {"Content-Type": "application/json"},
+                "body": json.dumps({"error": "invalid job_id format"}),
+            }
 
+        table = _dynamodb.Table(os.environ["JOBS_TABLE"])
         response = table.get_item(Key={"job_id": job_id})
         item = response.get("Item")
 
@@ -43,9 +55,10 @@ def handler(event: dict, context: object) -> dict:
             "body": json.dumps(item, cls=_DecimalEncoder),
         }
 
-    except Exception as e:
+    except Exception:
+        logger.exception("Status handler failed")
         return {
             "statusCode": 500,
             "headers": {"Content-Type": "application/json"},
-            "body": json.dumps({"error": str(e)}),
+            "body": json.dumps({"error": "internal server error"}),
         }

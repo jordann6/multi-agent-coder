@@ -1,4 +1,8 @@
+import logging
+
 from agents.coder import run_coder_agent
+
+logger = logging.getLogger()
 
 
 def handler(event: dict, context: object) -> dict:
@@ -11,5 +15,6 @@ def handler(event: dict, context: object) -> dict:
 
         return run_coder_agent(task, job_id=job_id)
 
-    except Exception as e:
-        return {"error": str(e)}
+    except Exception:
+        logger.exception("Coder handler failed")
+        return {"error": "internal error"}

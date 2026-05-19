@@ -9,9 +9,10 @@ terraform {
   }
 
   backend "s3" {
-    bucket = "tf-backend-jord-projs"
-    key    = "multi-agent-coder/terraform.tfstate"
-    region = "us-east-1"
+    bucket         = "tf-backend-jord-projs"
+    key            = "multi-agent-coder/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "tf-backend-jord-projs-lock"
   }
 }
 

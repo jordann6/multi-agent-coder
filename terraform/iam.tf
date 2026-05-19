@@ -58,11 +58,6 @@ resource "aws_iam_role_policy" "orchestrator_permissions" {
     Statement = [
       {
         Effect   = "Allow"
-        Action   = ["secretsmanager:GetSecretValue"]
-        Resource = aws_secretsmanager_secret.anthropic_key.arn
-      },
-      {
-        Effect   = "Allow"
         Action   = ["lambda:InvokeFunction"]
         Resource = aws_lambda_function.coder.arn
       },
@@ -99,4 +94,14 @@ resource "aws_iam_role_policy" "status_permissions" {
       }
     ]
   })
+}
+
+resource "aws_iam_role" "auth_lambda" {
+  name               = "${var.project_name}-auth-role"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
+}
+
+resource "aws_iam_role_policy_attachment" "auth_basic_execution" {
+  role       = aws_iam_role.auth_lambda.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }

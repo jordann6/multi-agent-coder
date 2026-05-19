@@ -32,3 +32,8 @@ output "anthropic_secret_arn" {
   description = "ARN of the Anthropic API key in Secrets Manager"
   value       = aws_secretsmanager_secret.anthropic_key.arn
 }
+
+output "auth_lambda_arn" {
+  description = "ARN of the API key authorizer Lambda"
+  value       = aws_lambda_function.auth.arn
+}

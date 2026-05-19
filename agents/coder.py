@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from typing import Any
@@ -8,6 +9,8 @@ import boto3
 
 from tools.code_tools import TOOL_DISPATCH
 from tools.registry import CODER_TOOLS
+
+logger = logging.getLogger()
 
 MAX_ITERATIONS = 10
 
@@ -32,16 +35,22 @@ Always return a final structured JSON response with no markdown or backticks:
 
 Include only the fields relevant to the task type. Return only valid JSON."""
 
+_dynamodb = boto3.resource("dynamodb", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+_secrets_client = boto3.client("secretsmanager", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+_cached_api_key: str | None = None
 
-def _get_secret(secret_arn: str) -> str:
-    client = boto3.client("secretsmanager", region_name=os.environ.get("AWS_REGION", "us-east-1"))
-    return client.get_secret_value(SecretId=secret_arn)["SecretString"]
+
+def _get_api_key() -> str:
+    global _cached_api_key
+    if _cached_api_key is None:
+        _cached_api_key = _secrets_client.get_secret_value(
+            SecretId=os.environ["ANTHROPIC_SECRET_ARN"]
+        )["SecretString"]
+    return _cached_api_key
 
 
 def _dynamo_table():
-    return boto3.resource("dynamodb", region_name=os.environ.get("AWS_REGION", "us-east-1")).Table(
-        os.environ["JOBS_TABLE"]
-    )
+    return _dynamodb.Table(os.environ["JOBS_TABLE"])
 
 
 def _store_result(job_id: str, result: dict[str, Any]) -> None:
@@ -71,8 +80,8 @@ def _store_error(job_id: str, error: str) -> None:
 
 
 def run_coder_agent(task: str, job_id: str | None = None) -> dict[str, Any]:
-    api_key = _get_secret(os.environ["ANTHROPIC_SECRET_ARN"])
-    client = anthropic.Anthropic(api_key=api_key)
+    client = anthropic.Anthropic(api_key=_get_api_key())
+    model = os.environ.get("MODEL_ID", "claude-sonnet-4-6")
 
     messages: list[dict[str, Any]] = [{"role": "user", "content": task}]
     result: dict[str, Any] = {}
@@ -80,9 +89,15 @@ def run_coder_agent(task: str, job_id: str | None = None) -> dict[str, Any]:
     try:
         for _ in range(MAX_ITERATIONS):
             response = client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model=model,
                 max_tokens=4096,
-                system=SYSTEM_PROMPT,
+                system=[
+                    {
+                        "type": "text",
+                        "text": SYSTEM_PROMPT,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
                 tools=CODER_TOOLS,
                 messages=messages,
             )
@@ -118,14 +133,17 @@ def run_coder_agent(task: str, job_id: str | None = None) -> dict[str, Any]:
                 messages.append({"role": "user", "content": tool_results})
 
         if not result:
-            result = {"task_type": "unknown", "result": {}, "summary": "Max iterations reached"}
+            if job_id:
+                _store_error(job_id, "Agent reached maximum iterations without producing a final answer")
+            return {"task_type": "unknown", "result": {}, "summary": "Max iterations reached"}
 
         if job_id:
             _store_result(job_id, result)
 
     except Exception as e:
+        logger.exception("Coder agent failed for job %s", job_id)
         if job_id:
-            _store_error(job_id, str(e))
+            _store_error(job_id, "Internal agent error")
         raise
 
     return result

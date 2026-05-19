@@ -1,6 +1,6 @@
 resource "aws_secretsmanager_secret" "anthropic_key" {
   name                    = "${var.project_name}/anthropic-api-key"
-  recovery_window_in_days = 0
+  recovery_window_in_days = 7
 }
 
 resource "aws_secretsmanager_secret_version" "anthropic_key" {
@@ -37,6 +37,7 @@ resource "aws_lambda_function" "coder" {
     variables = {
       ANTHROPIC_SECRET_ARN = aws_secretsmanager_secret.anthropic_key.arn
       JOBS_TABLE           = aws_dynamodb_table.jobs.name
+      MODEL_ID             = var.model_id
     }
   }
 
@@ -55,9 +56,8 @@ resource "aws_lambda_function" "orchestrator" {
 
   environment {
     variables = {
-      ANTHROPIC_SECRET_ARN = aws_secretsmanager_secret.anthropic_key.arn
-      CODER_LAMBDA_ARN     = aws_lambda_function.coder.arn
-      JOBS_TABLE           = aws_dynamodb_table.jobs.name
+      CODER_LAMBDA_ARN = aws_lambda_function.coder.arn
+      JOBS_TABLE       = aws_dynamodb_table.jobs.name
     }
   }
 
@@ -81,4 +81,28 @@ resource "aws_lambda_function" "status" {
   }
 
   depends_on = [aws_cloudwatch_log_group.status]
+}
+
+resource "aws_cloudwatch_log_group" "auth" {
+  name              = "/aws/lambda/${var.project_name}-auth"
+  retention_in_days = var.log_retention_days
+}
+
+resource "aws_lambda_function" "auth" {
+  function_name    = "${var.project_name}-auth"
+  filename         = "${path.module}/../dist/auth.zip"
+  source_code_hash = filebase64sha256("${path.module}/../dist/auth.zip")
+  handler          = "handlers.auth_handler.handler"
+  runtime          = "python3.12"
+  role             = aws_iam_role.auth_lambda.arn
+  timeout          = 5
+  memory_size      = 128
+
+  environment {
+    variables = {
+      API_KEY = var.api_gateway_key
+    }
+  }
+
+  depends_on = [aws_cloudwatch_log_group.auth]
 }

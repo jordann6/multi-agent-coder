@@ -23,7 +23,7 @@ cd "$DIST_DIR/coder_pkg" && zip -r "$DIST_DIR/coder.zip" . --quiet && cd "$ROOT_
 echo "  dist/coder.zip ready"
 
 echo "Building orchestrator package..."
-pip install anthropic boto3 \
+pip install boto3 \
   --target "$DIST_DIR/orchestrator_pkg" \
   --platform manylinux2014_x86_64 \
   --python-version 3.12 \
@@ -49,5 +49,11 @@ pip install boto3 \
 cp -r "$ROOT_DIR/handlers" "$DIST_DIR/status_pkg/"
 cd "$DIST_DIR/status_pkg" && zip -r "$DIST_DIR/status.zip" . --quiet && cd "$ROOT_DIR"
 echo "  dist/status.zip ready"
+
+echo "Building auth package..."
+mkdir -p "$DIST_DIR/auth_pkg"
+cp -r "$ROOT_DIR/handlers" "$DIST_DIR/auth_pkg/"
+cd "$DIST_DIR/auth_pkg" && zip -r "$DIST_DIR/auth.zip" . --quiet && cd "$ROOT_DIR"
+echo "  dist/auth.zip ready"
 
 echo "Build complete."

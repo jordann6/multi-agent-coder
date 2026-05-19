@@ -6,11 +6,12 @@ from typing import Any
 
 import boto3
 
+_dynamodb = boto3.resource("dynamodb", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+_lambda_client = boto3.client("lambda", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+
 
 def _dynamo_table():
-    return boto3.resource("dynamodb", region_name=os.environ.get("AWS_REGION", "us-east-1")).Table(
-        os.environ["JOBS_TABLE"]
-    )
+    return _dynamodb.Table(os.environ["JOBS_TABLE"])
 
 
 def _create_job(task: str) -> str:
@@ -28,7 +29,7 @@ def _create_job(task: str) -> str:
 
 
 def _dispatch_coder(job_id: str, task: str) -> None:
-    boto3.client("lambda", region_name=os.environ.get("AWS_REGION", "us-east-1")).invoke(
+    _lambda_client.invoke(
         FunctionName=os.environ["CODER_LAMBDA_ARN"],
         InvocationType="Event",
         Payload=json.dumps({"job_id": job_id, "task": task}).encode(),

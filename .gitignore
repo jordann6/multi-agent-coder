@@ -6,4 +6,3 @@ __pycache__/
 *.zip
 terraform/secrets.tfvars
 terraform/.terraform/
-terraform/.terraform.lock.hcl
