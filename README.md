@@ -4,12 +4,13 @@ A multi-agent system deployed on AWS Lambda that routes natural language coding 
 
 ## Architecture
 
-![Architecture](docs/architecture.svg)
+![Architecture](docs/architecture.png)
 
 ```
-Client
+Client (x-api-key header required)
   POST /task
     API Gateway (HTTP API)
+      Auth Lambda (REQUEST authorizer, 5-min cache)
       Orchestrator Lambda (sync, <2s)
         creates job in DynamoDB (status: pending)
         invokes Coder Lambda async (fire and forget)
@@ -17,14 +18,16 @@ Client
 
   GET /status/{job_id}
     API Gateway
+      Auth Lambda (REQUEST authorizer, 5-min cache)
       Status Lambda
         reads job from DynamoDB
         returns status + result
 
   Coder Lambda (async, runs independently)
-    agentic tool-use loop
+    fetches API key from Secrets Manager (cached)
+    agentic tool-use loop (up to 10 iterations)
       write_code | explain_code | debug_code
-    writes result to DynamoDB (status: complete)
+    writes result to DynamoDB (status: complete | error)
 ```
 
 ## Supported task types
@@ -48,7 +51,8 @@ multi-agent-coder/
 ├── handlers/
 │   ├── orchestrator_handler.py   POST /task entrypoint, returns 202
 │   ├── coder_handler.py          async Lambda entrypoint, passes job_id to coder
-│   └── status_handler.py         GET /status/{job_id} entrypoint
+│   ├── status_handler.py         GET /status/{job_id} entrypoint
+│   └── auth_handler.py           API Gateway REQUEST authorizer (x-api-key)
 ├── terraform/
 │   ├── main.tf               provider, S3 backend
 │   ├── variables.tf
@@ -65,12 +69,14 @@ multi-agent-coder/
 
 ## Infrastructure
 
-- 3 Lambda functions: orchestrator (30s timeout), coder (240s timeout), status (10s timeout)
+- 4 Lambda functions: orchestrator (30s), coder (240s), status (10s), auth (5s)
+- API Gateway REQUEST authorizer on all routes with 5-minute result cache
+- API Gateway throttling: 10 rps steady-state, 20 burst
 - DynamoDB jobs table with 24-hour TTL on all records
-- HTTP API Gateway with two routes
-- Secrets Manager for Anthropic API key
+- HTTP API Gateway with POST /task and GET /status/{job_id} routes
+- Secrets Manager for Anthropic API key (7-day recovery window)
 - CloudWatch log groups with 14-day retention
-- Least-privilege IAM: orchestrator can only invoke coder Lambda; status can only read DynamoDB
+- Least-privilege IAM: orchestrator can only invoke coder Lambda and write DynamoDB; status can only read DynamoDB; auth has no resource permissions
 
 ## Deploy
 
@@ -81,16 +87,26 @@ terraform init
 terraform apply -var-file="secrets.tfvars"
 ```
 
+`secrets.tfvars` must define:
+```hcl
+anthropic_api_key = "sk-ant-..."
+api_gateway_key   = "your-chosen-api-key"
+```
+
+> **Note:** The S3 backend uses a DynamoDB table (`tf-backend-jord-projs-lock`) for state locking. Create it with a `LockID` (String) primary key before running `terraform init` if it doesn't exist.
+
 ## Usage
 
 ```bash
 # Submit a task, receive job_id immediately
 curl -X POST <API_ENDPOINT> \
   -H "Content-Type: application/json" \
+  -H "x-api-key: your-chosen-api-key" \
   -d '{"task": "Write a Python function that flattens a nested list"}'
 
 # Poll until status is complete (typically 20-40 seconds)
-curl <STATUS_ENDPOINT>/<job_id>
+curl <STATUS_ENDPOINT>/<job_id> \
+  -H "x-api-key: your-chosen-api-key"
 ```
 
 Example response when complete:
@@ -125,7 +141,7 @@ terraform destroy -var-file="secrets.tfvars"
 
 **Async architecture.** API Gateway HTTP APIs have a hard 29-second integration timeout. Two sequential Anthropic API calls exceed this reliably. The orchestrator returns a job ID immediately and the coder Lambda runs independently, writing results to DynamoDB when complete.
 
-**Three separate Lambda packages.** Each function is sized and timed independently. The status Lambda has no Anthropic dependency, keeping its package and cold start minimal. Coder gets the full timeout budget.
+**Four separate Lambda packages.** Each function is sized and timed independently. The status and auth Lambdas have no Anthropic dependency and no pip deps beyond the stdlib, keeping their packages and cold starts minimal. Coder gets the full timeout budget.
 
 **Least-privilege IAM.** Orchestrator can invoke only the coder Lambda ARN. Status can only call DynamoDB GetItem. Coder cannot invoke any Lambda.
 
